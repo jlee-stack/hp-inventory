@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Henpacked · Inventory</title>
+
+<!--
+  ============================================================
+  HENPACKED INVENTORY  —  setup in 6 steps
+  ============================================================
+  1. Go to https://console.firebase.google.com  → Add project.
+  2. Build → Authentication → Get started → enable "Google".
+  3. Build → Firestore Database → Create database (Production mode).
+  4. Firestore → Rules tab → paste the rules from the chat → Publish.
+  5. Project settings (gear icon) → Your apps → Web app (</>) →
+     copy the firebaseConfig values into the block marked below.
+  6. Push this file (named index.html) to GitHub → repo Settings →
+     Pages → deploy from main branch. Then in Firebase →
+     Authentication → Settings → Authorized domains → add your
+     yourname.github.io address.
+
+  ADMINS vs VIEWERS:
+  - Put admin Google emails in BOTH the ADMIN_EMAILS list below AND
+    the Firestore rules. Admins can add/edit; everyone else signed
+    in can only view and export.
+  (Optional) Drop a logo.png next to this file to use your real logo.
+  ============================================================
+-->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --wine:#843130; --pink:#F9AAAA; --sienna:#3F141D; --gold:#E2B783;
+    --blush:#FFC9C9; --rose:#E37D87; --paper:#FBF5F1; --line:#E7D9D2; --inkSoft:#6E5B53;
+    --amber:#B8791F;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--sienna);
+       font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+  .serif{font-family:Georgia,"Times New Roman",serif}
+  button{font-family:inherit}
+  input{font-family:inherit}
+
+  .topbar{background:var(--sienna);padding:16px 20px}
+  .topbar-row{display:flex;align-items:center;justify-content:space-between;
+              gap:12px;flex-wrap:wrap;max-width:1000px;margin:0 auto}
+  #brandLogo{height:30px;filter:brightness(0) invert(1)}
+  #logoText{display:none;align-items:baseline;gap:5px}
+  #logoText .a{font-style:italic;font-weight:700;font-size:26px;color:#fff;letter-spacing:-.5px}
+  #logoText .d{color:var(--pink);font-size:13px;transform:translateY(-9px)}
+  .brand-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .role-badge{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+              border-radius:999px;padding:3px 10px}
+  .role-admin{background:var(--gold);color:var(--sienna)}
+  .role-view{background:transparent;color:var(--pink);border:1px solid var(--rose)}
+  .subline{max-width:1000px;margin:8px auto 0;display:flex;align-items:center;gap:8px}
+  .subline span{color:var(--pink);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+  #bizName{background:transparent;border:none;border-bottom:1px dashed var(--rose);
+           color:#fff;font-size:13px;padding:2px 0;outline:none;max-width:220px}
+  #bizNameStatic{color:#fff;font-size:13px}
+
+  .wrap{padding:20px;max-width:1000px;margin:0 auto}
+
+  .btn{border:none;border-radius:999px;font-weight:700;cursor:pointer}
+  .btn-gold{background:var(--gold);color:var(--sienna);padding:10px 18px;font-size:14px}
+  .btn-wine{background:var(--wine);color:#fff;padding:8px 16px;font-size:13px}
+  .btn-ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);
+             padding:7px 14px;font-size:13px;border-radius:999px;cursor:pointer}
+
+  .lowbanner{background:#FFF4E2;border:1px solid var(--gold);border-radius:14px;
+             padding:14px 16px;margin-bottom:18px;color:var(--amber);font-size:14px}
+  .lowbanner b{color:var(--sienna)}
+
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:14px;
+        padding:14px 16px;flex:1 1 110px}
+  .stat .n{font-size:30px;font-weight:700;line-height:1}
+  .stat .l{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--inkSoft);margin-top:6px}
+
+  .section-head{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px;gap:12px;flex-wrap:wrap}
+  .section-head h2{font-size:22px;font-weight:700;margin:0}
+  .thresh{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--inkSoft)}
+  .thresh input{width:64px;padding:6px 8px;border-radius:8px;border:1px solid var(--line);
+                font-size:14px;color:var(--sienna);outline:none}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .card{background:#fff;border:2px solid var(--line);border-radius:14px;padding:16px;
+        cursor:pointer;position:relative}
+  .card.sel{border-color:var(--wine)}
+  .card.low{border-color:var(--gold)}
+  .card.out{border-color:#C0392B}
+  .card .sku{font-size:11px;color:var(--inkSoft);font-family:monospace;letter-spacing:.5px}
+  .card .nm{font-size:17px;font-weight:700;margin:4px 0 10px}
+  .card .stk{font-size:28px;font-weight:700;line-height:1}
+  .card .lbl{font-size:11px;color:var(--inkSoft);text-transform:uppercase;letter-spacing:1px;margin-left:6px}
+  .stockbadge{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;
+              border-radius:999px;padding:3px 10px}
+  .sb-low{background:var(--gold);color:var(--sienna)}
+  .sb-out{background:#C0392B;color:#fff}
+  .x{position:absolute;top:8px;right:10px;background:none;border:none;color:var(--inkSoft);cursor:pointer;font-size:14px}
+
+  .empty{background:#fff;border:1px dashed var(--line);border-radius:14px;padding:26px;
+         text-align:center;color:var(--inkSoft)}
+
+  .panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:18px}
+  .panel .for{font-size:12px;color:var(--inkSoft);text-transform:uppercase;letter-spacing:1px}
+  .panel .pnm{font-size:19px;font-weight:700;color:var(--wine)}
+  .panel .pnm .ps{font-family:monospace;font-size:12px;color:var(--inkSoft)}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .act{flex:1 1 140px;border:none;border-radius:12px;padding:12px 14px;font-weight:700;font-size:14px;color:#fff;cursor:pointer}
+
+  .toggle{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px}
+  .toggle button{border:none;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--inkSoft)}
+  .toggle button.on{background:var(--wine);color:#fff}
+
+  .log{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .row:first-child{border-top:none}
+  .row .dt{width:90px;font-size:12px;color:var(--inkSoft)}
+  .pill{font-size:11px;font-weight:600;color:#fff;border-radius:999px;padding:2px 10px;white-space:nowrap}
+  .row .mid{flex:1 1 140px;min-width:120px}
+  .row .mid .t{font-size:14px;font-weight:600}
+  .row .mid .t .ps{font-family:monospace;font-size:11px;color:var(--inkSoft)}
+  .row .mid .rs{font-size:12px;color:var(--inkSoft)}
+  .row .eff{font-size:16px;font-weight:700;width:62px;text-align:right}
+
+  .overlay{position:fixed;inset:0;background:rgba(63,20,29,.45);display:flex;align-items:center;
+           justify-content:center;padding:16px;z-index:50}
+  .modal{background:#fff;border-radius:18px;padding:22px;width:100%;max-width:380px;
+         box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal h3{font-size:20px;font-weight:700;color:var(--wine);margin:0 0 16px}
+  .fld{display:block;margin-bottom:14px}
+  .fld .cap{display:block;font-size:12px;font-weight:600;color:var(--inkSoft);
+            margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+  .fld input[type=text],.fld input[type=number],.fld input[type=date]{
+     width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+     font-size:15px;background:#fff;color:var(--sienna);outline:none}
+  .check{display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer;font-size:14px}
+  .check input{width:18px;height:18px}
+  .warn{font-size:12px;color:#C0392B;margin:-6px 0 12px}
+  .modal-btns{display:flex;gap:10px;margin-top:6px}
+  .modal-btns button{flex:1;border-radius:12px;padding:11px 0;font-weight:700;cursor:pointer}
+  .mb-cancel{background:transparent;color:var(--inkSoft);border:1px solid var(--line)}
+  .mb-save{background:var(--wine);color:#fff;border:none}
+
+  .screen{min-height:80vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .screen-box{background:#fff;border:1px solid var(--line);border-radius:20px;padding:34px;
+              max-width:440px;text-align:center}
+  .screen-box h1{font-size:28px;font-weight:700;color:var(--wine);margin:0 0 6px}
+  .screen-box p{color:var(--inkSoft);font-size:14px;line-height:1.5}
+  .gbtn{margin-top:18px;display:inline-flex;align-items:center;gap:10px;background:#fff;
+        border:1px solid #dadce0;border-radius:10px;padding:11px 18px;font-size:15px;
+        font-weight:600;color:#3c4043;cursor:pointer}
+  .gbtn img{width:18px;height:18px}
+  .setup-list{text-align:left;font-size:13px;color:var(--sienna);line-height:1.6;margin:14px 0 0;padding-left:18px}
+  code{background:var(--blush);border-radius:5px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, getDoc, setDoc }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ============================================================
+   1) PASTE YOUR FIREBASE CONFIG HERE
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "PASTE_API_KEY",
+  authDomain: "PASTE_PROJECT.firebaseapp.com",
+  projectId: "PASTE_PROJECT_ID",
+  storageBucket: "PASTE_PROJECT.appspot.com",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID"
+};
+
+/* ============================================================
+   2) ADMINS — these Google accounts can ADD / EDIT.
+      Everyone else who signs in can only VIEW + export.
+      IMPORTANT: this list must match the emails in your
+      Firestore rules (see the chat for the rules to paste).
+   ============================================================ */
+const ADMIN_EMAILS = [
+  "PASTE_YOUR_ADMIN_EMAIL@gmail.com"
+];
+
+/* Default low-stock alert level. Editable in-app by an admin. */
+const DEFAULT_LOW_STOCK = 20;
+/* ============================================================ */
+
+const TYPE_META = {
+  inventory_add: { label:"Stock added", color:"#843130" },
+  sale:          { label:"Sale",        color:"#3F141D" },
+  return:        { label:"Return",      color:"#E37D87" },
+  decrease:      { label:"Decrease",    color:"#E2B783" },
+};
+const todayISO = () => { const d=new Date();
+  return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const effectOf = t =>
+  t.type==="inventory_add"? t.quantity :
+  t.type==="sale"||t.type==="decrease"? -t.quantity :
+  t.type==="return"? (t.restock? t.quantity:0) : 0;
+const stockFor = (pid,txns)=> txns.filter(t=>t.productId===pid).reduce((s,t)=>s+effectOf(t),0);
+
+const root = document.getElementById("root");
+const isConfigured = !String(firebaseConfig.apiKey).includes("PASTE");
+
+let auth=null, db=null, uid=null;
+let state = { products:[], txns:[], businessName:"Henpacked",
+              lowStock:DEFAULT_LOW_STOCK, selectedId:null, viewAll:true,
+              isAdmin:false, userEmail:"" };
+
+/* ---------- screens ---------- */
+function logoMarkup(){
+  return `<img id="brandLogo" src="logo.png" alt="henpacked"
+            onerror="this.style.display='none';document.getElementById('logoText').style.display='flex'">
+          <div id="logoText"><span class="a serif">hen</span><span class="d">✦</span><span class="a serif">packed</span></div>`;
+}
+
+function showSetup(){
+  root.innerHTML = `<div class="topbar"><div class="topbar-row">${logoMarkup()}</div></div>
+  <div class="screen"><div class="screen-box">
+    <h1 class="serif">Almost there</h1>
+    <p>This app needs to be connected to your Firebase project before it can run. Add your config to the top of <code>index.html</code>, then:</p>
+    <ol class="setup-list">
+      <li>Create a project at <b>console.firebase.google.com</b></li>
+      <li>Enable <b>Authentication → Google</b></li>
+      <li>Create a <b>Firestore Database</b> (not Storage)</li>
+      <li>Paste the <b>Firestore rules</b> from the chat</li>
+      <li>Copy your web-app config into the <code>firebaseConfig</code> block</li>
+      <li>Add your admin email to <code>ADMIN_EMAILS</code> (and the rules)</li>
+      <li>Add your <code>yourname.github.io</code> domain under Auth → Authorized domains</li>
+    </ol>
+  </div></div>`;
+}
+
+function showLogin(err){
+  root.innerHTML = `<div class="topbar"><div class="topbar-row">${logoMarkup()}</div></div>
+  <div class="screen"><div class="screen-box">
+    <h1 class="serif">Henpacked Inventory</h1>
+    <p>Sign in with your Google account. Admins can manage stock; everyone else gets a view-only dashboard.</p>
+    <button class="gbtn" id="googleBtn">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
+      Sign in with Google
+    </button>
+    ${err? `<p style="color:#C0392B;margin-top:14px">${esc(err)}</p>`:""}
+  </div></div>`;
+  document.getElementById("googleBtn").onclick = doLogin;
+}
+
+/* ---------- auth ---------- */
+async function doLogin(){
+  try{
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  }catch(e){
+    let msg = e.message || "Sign-in failed.";
+    if(e.code==="auth/unauthorized-domain")
+      msg = "This domain isn't authorised yet. In Firebase → Authentication → Settings → Authorized domains, add your GitHub Pages address.";
+    showLogin(msg);
+  }
+}
+
+/* ---------- data (shared, top-level collections) ---------- */
+async function loadData(){
+  const [ps,ts] = await Promise.all([
+    getDocs(collection(db,"products")),
+    getDocs(collection(db,"transactions"))
+  ]);
+  state.products = ps.docs.map(d=>({id:d.id,...d.data()}));
+  state.txns     = ts.docs.map(d=>({id:d.id,...d.data()}));
+  try{
+    const m = await getDoc(doc(db,"meta","profile"));
+    if(m.exists()){
+      const d=m.data();
+      if(d.businessName) state.businessName=d.businessName;
+      if(typeof d.lowStock==="number") state.lowStock=d.lowStock;
+    }
+  }catch(e){}
+}
+
+async function addProduct(sku,name){
+  const data={sku,name,createdDate:todayISO()};
+  const ref = await addDoc(collection(db,"products"),data);
+  state.products.push({id:ref.id,...data});
+}
+async function addTxn(t){
+  const ref = await addDoc(collection(db,"transactions"),t);
+  state.txns.unshift({id:ref.id,...t});
+}
+async function delTxn(id){
+  await deleteDoc(doc(db,"transactions",id));
+  state.txns = state.txns.filter(t=>t.id!==id);
+}
+async function delProduct(id){
+  const kids = state.txns.filter(t=>t.productId===id);
+  await Promise.all(kids.map(t=>deleteDoc(doc(db,"transactions",t.id))));
+  await deleteDoc(doc(db,"products",id));
+  state.txns = state.txns.filter(t=>t.productId!==id);
+  state.products = state.products.filter(p=>p.id!==id);
+  if(state.selectedId===id) state.selectedId=null;
+}
+async function saveBiz(v){
+  state.businessName=v;
+  try{ await setDoc(doc(db,"meta","profile"),{businessName:v},{merge:true}); }catch(e){}
+}
+async function saveLowStock(v){
+  state.lowStock=v;
+  try{ await setDoc(doc(db,"meta","profile"),{lowStock:v},{merge:true}); }catch(e){}
+}
+
+/* ---------- export ---------- */
+function exportExcel(){
+  const {products,txns}=state;
+  const wb = XLSX.utils.book_new();
+  const skuOf  = id => (products.find(p=>p.id===id)||{}).sku  || "";
+  const nameOf = id => (products.find(p=>p.id===id)||{}).name || "";
+
+  const prodRows = products.map(p=>({SKU:p.sku,"Product Name":p.name,
+    "Current Stock":stockFor(p.id,txns),
+    "Low-Stock Level":state.lowStock,
+    "Status": stockFor(p.id,txns)<=0?"Out of stock":(stockFor(p.id,txns)<=state.lowStock?"Low":"OK"),
+    "Date Added":p.createdDate}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prodRows.length?prodRows:
+    [{SKU:"","Product Name":"","Current Stock":"","Low-Stock Level":"","Status":"","Date Added":""}]), "Products");
+
+  const sorted = [...txns].sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:0);
+  const allRows = sorted.map(t=>({Date:t.date,SKU:skuOf(t.productId),Product:nameOf(t.productId),
+    Type:TYPE_META[t.type].label,Quantity:t.quantity,"Stock Effect":effectOf(t),
+    Reason:t.reason||"","Added Back to Stock":t.type==="return"?(t.restock?"Yes":"No"):"",
+    "Logged By":t.createdBy||"","Logged At":(t.createdAt||"").replace("T"," ").slice(0,19)}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allRows.length?allRows:
+    [{Date:"",SKU:"",Product:"",Type:"",Quantity:"","Stock Effect":"",Reason:"","Added Back to Stock":"","Logged By":"","Logged At":""}]),
+    "All Transactions");
+
+  const sheet=(type,title,extra)=>{
+    const rows = sorted.filter(t=>t.type===type).map(t=>({Date:t.date,SKU:skuOf(t.productId),
+      Product:nameOf(t.productId),Quantity:t.quantity,...(extra?extra(t):{}),
+      "Logged By":t.createdBy||"","Logged At":(t.createdAt||"").replace("T"," ").slice(0,19)}));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length?rows:
+      [{Date:"",SKU:"",Product:"",Quantity:"","Logged By":"","Logged At":""}]), title);
+  };
+  sheet("inventory_add","Inventory Added");
+  sheet("sale","Sales");
+  sheet("return","Returns",t=>({Reason:t.reason||"","Added Back to Stock":t.restock?"Yes":"No"}));
+  sheet("decrease","Other Decreases",t=>({Reason:t.reason||""}));
+
+  XLSX.writeFile(wb, `henpacked_inventory_${todayISO()}.xlsx`);
+}
+
+/* ---------- main render ---------- */
+function render(){
+  const {products,txns,selectedId,viewAll,businessName,isAdmin,lowStock}=state;
+  const selected = products.find(p=>p.id===selectedId)||null;
+  const inStock = products.reduce((s,p)=>s+stockFor(p.id,txns),0);
+  const sold = txns.filter(t=>t.type==="sale").reduce((s,t)=>s+t.quantity,0);
+  const returned = txns.filter(t=>t.type==="return").reduce((s,t)=>s+t.quantity,0);
+
+  const lowItems = products.filter(p=>stockFor(p.id,txns)<=lowStock);
+
+  const list = (viewAll||!selected)? txns : txns.filter(t=>t.productId===selected.id);
+  const sortedLog = [...list].sort((a,b)=> a.date!==b.date? (a.date<b.date?1:-1)
+    : (b.createdAt||"").localeCompare(a.createdAt||""));
+  const nameOf = id => (products.find(p=>p.id===id)||{}).name||"—";
+  const skuOf  = id => (products.find(p=>p.id===id)||{}).sku||"";
+
+  const lowBanner = lowItems.length? `<div class="lowbanner">
+      ⚠ <b>${lowItems.length}</b> product${lowItems.length>1?"s":""} at or below your low-stock level of <b>${lowStock}</b>:
+      ${lowItems.map(p=>`${esc(p.name)} (<b>${stockFor(p.id,txns)}</b>)`).join(" · ")}
+    </div>`:"";
+
+  root.innerHTML = `
+  <div class="topbar">
+    <div class="topbar-row">
+      <div class="brand-left">${logoMarkup()}
+        <span class="role-badge ${isAdmin?'role-admin':'role-view'}">${isAdmin?'Admin':'View only'}</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-gold" id="exportBtn">⬇ Export to Excel</button>
+        <button class="btn-ghost" id="signoutBtn">Sign out</button>
+      </div>
+    </div>
+    <div class="subline">
+      <span>Inventory tracker ·</span>
+      ${isAdmin? `<input id="bizName" value="${esc(businessName)}">`
+               : `<span id="bizNameStatic">${esc(businessName)}</span>`}
+    </div>
+  </div>
+
+  <div class="wrap">
+    ${lowBanner}
+
+    <div class="stats">
+      <div class="stat"><div class="n serif" style="color:var(--wine)">${products.length}</div><div class="l">Products</div></div>
+      <div class="stat"><div class="n serif" style="color:var(--sienna)">${inStock}</div><div class="l">Units in stock</div></div>
+      <div class="stat"><div class="n serif" style="color:var(--rose)">${sold}</div><div class="l">Units sold</div></div>
+      <div class="stat"><div class="n serif" style="color:var(--gold)">${returned}</div><div class="l">Units returned</div></div>
+      <div class="stat"><div class="n serif" style="color:var(--amber)">${lowItems.length}</div><div class="l">Needs reorder</div></div>
+    </div>
+
+    <div class="section-head">
+      <h2 class="serif">Products</h2>
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="thresh">Low-stock alert at
+          ${isAdmin? `<input type="number" min="0" id="threshInput" value="${lowStock}">`
+                   : `<b style="color:var(--sienna)">${lowStock}</b>`}
+        </div>
+        ${isAdmin? `<button class="btn btn-wine" id="addProductBtn">+ Add product</button>`:""}
+      </div>
+    </div>
+
+    ${products.length===0 ? `<div class="empty">No products yet.${isAdmin?" Add your first product (e.g. the “High Risk” cap) with your own SKU to get started.":""}</div>`
+    : `<div class="grid">${products.map(p=>{
+        const stk=stockFor(p.id,txns); const sel=p.id===selectedId;
+        const cls = stk<=0?"out":(stk<=lowStock?"low":"");
+        const badge = stk<=0? `<div class="stockbadge sb-out">Out of stock</div>`
+                    : stk<=lowStock? `<div class="stockbadge sb-low">Low stock</div>` : "";
+        return `<div class="card ${sel?'sel':''} ${cls}" data-pid="${p.id}">
+          <div class="sku">${esc(p.sku)}</div>
+          <div class="nm serif">${esc(p.name)}</div>
+          <div><span class="stk serif" style="color:${stk<0?'#C0392B':'var(--wine)'}">${stk}</span><span class="lbl">in stock</span></div>
+          ${badge}
+          ${isAdmin? `<button class="x" data-del-product="${p.id}" title="Delete product">✕</button>`:""}
+        </div>`;}).join("")}</div>`}
+
+    ${(selected && isAdmin)? `<div class="panel">
+      <div class="for">Logging for</div>
+      <div class="pnm serif">${esc(selected.name)} <span class="ps">(${esc(selected.sku)})</span></div>
+      <div class="actions">
+        <button class="act" style="background:var(--wine)"   data-act="inventory_add">Add stock</button>
+        <button class="act" style="background:var(--sienna)" data-act="sale">Log sale</button>
+        <button class="act" style="background:var(--rose)"   data-act="return">Log return</button>
+        <button class="act" style="background:var(--gold);color:var(--sienna)" data-act="decrease">Log decrease</button>
+      </div></div>`:""}
+
+    <div class="section-head">
+      <h2 class="serif">Activity log</h2>
+      ${selected? `<div class="toggle">
+        <button class="${viewAll?'on':''}" data-view="all">All</button>
+        <button class="${!viewAll?'on':''}" data-view="one">This product</button></div>`:""}
+    </div>
+
+    ${sortedLog.length===0? `<div class="empty">No activity yet.</div>`
+    : `<div class="log">${sortedLog.map(t=>{
+        const eff=effectOf(t); const m=TYPE_META[t.type];
+        const effColor = eff>0?'var(--wine)':eff<0?'#C0392B':'var(--inkSoft)';
+        const reason = t.reason? `<div class="rs">“${esc(t.reason)}”${t.type==="return"?(t.restock?" · restocked":" · not restocked"):""}</div>`:"";
+        return `<div class="row">
+          <div class="dt">${esc(t.date)}</div>
+          <span class="pill" style="background:${m.color}">${m.label}</span>
+          <div class="mid"><div class="t">${esc(nameOf(t.productId))} <span class="ps">${esc(skuOf(t.productId))}</span></div>${reason}</div>
+          <div class="eff" style="color:${effColor}">${eff>0?'+':''}${eff}</div>
+          ${isAdmin? `<button class="x" style="position:static" data-del-txn="${t.id}" title="Delete entry">✕</button>`:""}
+        </div>`;}).join("")}</div>`}
+  </div>`;
+
+  // wire up
+  document.getElementById("exportBtn").onclick = exportExcel;
+  document.getElementById("signoutBtn").onclick = ()=>signOut(auth);
+
+  if(isAdmin){
+    const ap=document.getElementById("addProductBtn"); if(ap) ap.onclick=()=>openModal("addProduct");
+    const bn=document.getElementById("bizName"); if(bn) bn.onchange=e=>saveBiz(e.target.value.trim()||"Henpacked");
+    const th=document.getElementById("threshInput"); if(th) th.onchange=async e=>{
+      const v=Math.max(0,parseInt(e.target.value,10)||0); await saveLowStock(v); render();
+    };
+    root.querySelectorAll("[data-del-product]").forEach(el=>el.onclick=async e=>{
+      e.stopPropagation();
+      if(!confirm("Delete this product and all of its history? This cannot be undone.")) return;
+      await delProduct(el.getAttribute("data-del-product")); render();
+    });
+    root.querySelectorAll("[data-act]").forEach(el=>el.onclick=()=>openModal(el.getAttribute("data-act")));
+    root.querySelectorAll("[data-del-txn]").forEach(el=>el.onclick=async()=>{
+      if(!confirm("Delete this entry? Stock will be recalculated.")) return;
+      await delTxn(el.getAttribute("data-del-txn")); render();
+    });
+  }
+
+  root.querySelectorAll("[data-pid]").forEach(el=>el.onclick=e=>{
+    if(e.target.matches("[data-del-product]")) return;
+    const id=el.getAttribute("data-pid");
+    state.selectedId = state.selectedId===id? null : id;
+    render();
+  });
+  root.querySelectorAll("[data-view]").forEach(el=>el.onclick=()=>{
+    state.viewAll = el.getAttribute("data-view")==="all"; render();
+  });
+}
+
+/* ---------- modal (admins only) ---------- */
+function openModal(type){
+  if(!state.isAdmin) return;
+  const selected = state.products.find(p=>p.id===state.selectedId)||null;
+  if(type!=="addProduct" && !selected) return;
+  const isProduct = type==="addProduct";
+  const title = isProduct? "Add a product"
+    : `${TYPE_META[type].label}${selected?" · "+esc(selected.name):""}`;
+
+  const body = isProduct ? `
+    <label class="fld"><span class="cap">SKU (your own code)</span>
+      <input type="text" id="f_sku" placeholder="e.g. HR-CAP-STN"></label>
+    <label class="fld"><span class="cap">Product name</span>
+      <input type="text" id="f_name" placeholder="e.g. High Risk Cap — Stone"></label>`
+  : `
+    <label class="fld"><span class="cap">Quantity</span>
+      <input type="number" min="1" id="f_qty" placeholder="0"></label>
+    <div id="f_warn" class="warn" style="display:none"></div>
+    <label class="fld"><span class="cap">Date</span>
+      <input type="date" id="f_date" value="${todayISO()}"></label>
+    ${(type==="return"||type==="decrease")? `<label class="fld"><span class="cap">Reason</span>
+      <input type="text" id="f_reason" placeholder="${type==="return"?"e.g. wrong size":"e.g. damaged / sample / gifted"}"></label>`:""}
+    ${type==="return"? `<label class="check"><input type="checkbox" id="f_restock" checked>
+      <span>Add returned item back to inventory</span></label>`:""}`;
+
+  const overlay = document.createElement("div");
+  overlay.className="overlay";
+  overlay.innerHTML = `<div class="modal">
+    <h3 class="serif">${title}</h3>${body}
+    <div class="modal-btns">
+      <button class="mb-cancel" id="m_cancel">Cancel</button>
+      <button class="mb-save" id="m_save">Save</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+
+  const close = ()=>overlay.remove();
+  overlay.onclick = e=>{ if(e.target===overlay) close(); };
+  overlay.querySelector("#m_cancel").onclick = close;
+
+  if(!isProduct && (type==="sale"||type==="decrease")){
+    const qty=overlay.querySelector("#f_qty"); const warn=overlay.querySelector("#f_warn");
+    qty.oninput=()=>{
+      const q=parseInt(qty.value,10); const cur=stockFor(selected.id,state.txns);
+      if(q>cur){ warn.style.display="block";
+        warn.textContent=`Heads up: this exceeds current stock (${cur}). It’ll still log — stock will show negative so you can correct it.`;}
+      else warn.style.display="none";
+    };
+  }
+
+  overlay.querySelector("#m_save").onclick = async ()=>{
+    if(isProduct){
+      const sku=overlay.querySelector("#f_sku").value.trim();
+      const name=overlay.querySelector("#f_name").value.trim();
+      if(!sku||!name) return alert("Please enter both a SKU and a product name.");
+      if(state.products.some(p=>p.sku.toLowerCase()===sku.toLowerCase()))
+        return alert("That SKU already exists. SKUs must be unique.");
+      await addProduct(sku,name);
+      state.selectedId = state.products[state.products.length-1].id;
+    } else {
+      const q=parseInt(overlay.querySelector("#f_qty").value,10);
+      if(!q||q<=0) return alert("Enter a quantity greater than zero.");
+      const reasonEl=overlay.querySelector("#f_reason");
+      const reason=reasonEl?reasonEl.value.trim():"";
+      if((type==="return"||type==="decrease")&&!reason) return alert("Please add a reason.");
+      const restockEl=overlay.querySelector("#f_restock");
+      const t={ productId:selected.id, type, quantity:q,
+        date:overlay.querySelector("#f_date").value||todayISO(),
+        reason, createdBy:state.userEmail, createdAt:new Date().toISOString() };
+      if(type==="return") t.restock = restockEl? restockEl.checked : true;
+      await addTxn(t);
+    }
+    close(); render();
+  };
+}
+
+/* ---------- boot ---------- */
+if(!isConfigured){
+  showSetup();
+}else{
+  const app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  const adminSet = ADMIN_EMAILS.map(e=>e.toLowerCase());
+  onAuthStateChanged(auth, async user=>{
+    if(user){
+      uid = user.uid;
+      state.userEmail = user.email||"";
+      state.isAdmin = adminSet.includes(state.userEmail.toLowerCase());
+      root.innerHTML = `<div class="screen"><div class="screen-box"><h1 class="serif">Loading…</h1></div></div>`;
+      try{ await loadData(); render(); }
+      catch(e){ showLogin("Couldn't load your data: "+(e.message||e)); }
+    }else{
+      uid=null; state.isAdmin=false; state.userEmail=""; showLogin();
+    }
+  });
+}
+</script>
+</body>
+</html>
